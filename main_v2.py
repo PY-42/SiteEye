@@ -502,18 +502,13 @@ class SiteEye:
             self._busy = False
             return
 
-        # Capture background image for context
-        img_path = self._capture_photo()
-
+        # Skip background photo — saves 1.5s. Vision triggers only in camera mode.
         self.ui.set_status("Processing")
         self.ui.set_state(STATE_THINKING)
         log("\U0001f504 Sending to proxy...")
 
         try:
             files = {"audio": ("voice.wav", open(audio_path, "rb"), "audio/wav")}
-            if img_path:
-                files["image"] = ("snap.jpg", open(img_path, "rb"), "image/jpeg")
-
             r = requests.post(f"{PROXY_URL}/voice_all", files=files, timeout=60)
 
             for f in files.values():
@@ -544,17 +539,17 @@ class SiteEye:
                     time.sleep(2)
 
                 # Keep text visible briefly, then clear
-                time.sleep(3)
+                time.sleep(1)
                 self.ui.response_text = ""
             else:
                 log(f"\u274c Proxy error: {r.status_code}")
                 self.ui.set_status("Error")
                 self.ui.set_state(STATE_ERROR, f"Error {r.status_code}")
-                time.sleep(2)
+                time.sleep(1)
         except Exception as e:
             log(f"\u274c {e}")
             self.ui.set_state(STATE_ERROR, str(e)[:40])
-            time.sleep(2)
+            time.sleep(1)
 
         for p in [audio_path, img_path]:
             try:
@@ -589,11 +584,12 @@ class SiteEye:
 
         # Show captured still on LCD
         self.ui.show_captured_image(img_path)
-        log("\U0001f504 Sending to proxy for vision...")
+        log("\U0001f504 Sending to proxy for vision+TTS...")
 
         try:
+            # Combined vision + TTS in one request (saves a round trip)
             with open(img_path, "rb") as f:
-                r = requests.post(f"{PROXY_URL}/vision",
+                r = requests.post(f"{PROXY_URL}/vision_tts",
                     files={"image": ("snap.jpg", f, "image/jpeg")},
                     data={"prompt": "What do you see? Be concise and conversational."},
                     timeout=60)
@@ -601,6 +597,7 @@ class SiteEye:
             if r.status_code == 200:
                 data = r.json()
                 response = data.get("response", "No response")
+                audio_b64 = data.get("audio")
                 log(f"\U0001f916 {response}")
 
                 self.ui.set_photo_text(response)
@@ -609,28 +606,22 @@ class SiteEye:
                 threading.Thread(target=self._send_telegram,
                     args=(f"📷 SiteEye\n\n🤖 {response}", img_path), daemon=True).start()
 
-                try:
-                    tts_r = requests.post(f"{PROXY_URL}/tts",
-                        json={"text": response}, timeout=60)
-                    if tts_r.status_code == 200 and len(tts_r.content) > 100:
-                        self._play_audio_raw(tts_r.content)
-                    else:
-                        log(f"\u26a0\ufe0f TTS error: status={tts_r.status_code} len={len(tts_r.content)}")
-                        time.sleep(3)
-                except Exception as e:
-                    log(f"\u26a0\ufe0f TTS failed: {e}")
-                    time.sleep(3)
+                # Play TTS (already included in response — no second request)
+                if audio_b64:
+                    self._play_audio_b64(audio_b64)
+                else:
+                    time.sleep(1)
 
-                # Keep photo + text visible briefly after speech
-                time.sleep(4)
+                # Brief hold on photo + text
+                time.sleep(1.5)
             else:
                 log(f"\u274c Vision error: {r.status_code}")
                 self.ui.set_photo_text(f"Error {r.status_code}")
-                time.sleep(3)
+                time.sleep(1)
         except Exception as e:
             log(f"\u274c {e}")
             self.ui.set_photo_text(str(e)[:40])
-            time.sleep(3)
+            time.sleep(1)
 
         self.ui.clear_photo()
 
@@ -647,7 +638,7 @@ class SiteEye:
         try:
             subprocess.run(
                 ["rpicam-still", "-o", path, "--width", str(CAPTURE_WIDTH),
-                 "--height", str(CAPTURE_HEIGHT), "--nopreview", "-t", "1500",
+                 "--height", str(CAPTURE_HEIGHT), "--nopreview", "-t", "800",
                  "--vflip", "--hflip"],
                 capture_output=True, timeout=15
             )
