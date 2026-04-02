@@ -4,7 +4,10 @@ A wearable AI device that sees, hears, and speaks. Built on Raspberry Pi Zero 2W
 
 Designed for construction jobsites — hands-free AI that clips to your vest.
 
-![SiteEye](build-photos/README-hero.jpg)
+<p align="center">
+  <img src="build-photos/siteeye-front.jpg" width="380" alt="SiteEye — Front (LCD face + camera)">
+  <img src="build-photos/siteeye-back.jpg" width="380" alt="SiteEye — Back (PiSugar battery + Pi Zero 2W)">
+</p>
 
 ---
 
