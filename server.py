@@ -1,4 +1,4 @@
-"""Molt Device Proxy — Whisper STT + Vision + OpenClaw Gateway for Pi Zero 2W"""
+"""SiteEye Proxy — Whisper STT + Vision + OpenClaw Gateway for Pi Zero 2W"""
 import os
 import base64
 import tempfile
@@ -25,7 +25,6 @@ def history_append(role, content):
         conversation_history.clear()
     last_interaction = now
     conversation_history.append({"role": role, "content": content})
-    # Trim to max
     while len(conversation_history) > HISTORY_MAX:
         conversation_history.pop(0)
 
@@ -34,12 +33,16 @@ def get_history_messages(system_prompt):
     """Build messages list with system prompt + conversation history."""
     return [{"role": "system", "content": system_prompt}] + list(conversation_history)
 
+
+# --- OpenAI clients ---
 whisper_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
-OPENCLAW_URL = "http://127.0.0.1:18790/v1/chat/completions"
-OPENCLAW_TOKEN = "UcsOZwuOfl1q+63vHJBrXvdmsevyW3VR6PJpbLQkgFM="
-DEVICE_MODEL = "anthropic/claude-sonnet-4-6"  # main device model
+# --- OpenClaw gateway (internal) ---
+OPENCLAW_URL = os.environ.get("OPENCLAW_URL", "http://127.0.0.1:18790/v1/chat/completions")
+OPENCLAW_TOKEN = os.environ.get("OPENCLAW_TOKEN", "")
+DEVICE_MODEL = "anthropic/claude-sonnet-4-6"
 
+# --- System prompts ---
 DEVICE_SYSTEM = """You are Molt — Michael's AI on his wearable device. Spoken aloud through earphones.
 
 RULES:
@@ -85,10 +88,9 @@ def voice():
         img_content = {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}}
 
     if img_content:
-        # Voice + Vision: use OpenAI GPT-4o directly
         try:
-            from openai import OpenAI
-            vision_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+            from openai import OpenAI as _OAI
+            vision_client = _OAI(api_key=os.environ.get("OPENAI_API_KEY"))
             resp = vision_client.chat.completions.create(
                 model="gpt-4o",
                 max_tokens=150,
@@ -104,7 +106,6 @@ def voice():
         except Exception as e:
             assistant_text = f"Vision error: {str(e)[:60]}"
     else:
-        # Voice only: route through OpenClaw (full Molt)
         try:
             resp = requests.post(
                 OPENCLAW_URL,
@@ -132,7 +133,7 @@ def voice():
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    """Text chat endpoint for Molt Device v7."""
+    """Text chat endpoint."""
     data = request.get_json()
     text = data.get("text", "")
     if not text:
@@ -164,8 +165,7 @@ def chat():
 
 @app.route("/vision", methods=["POST"])
 def vision():
-    """Vision endpoint — routes through OpenClaw gateway with multimodal support."""
-    # Support JSON body (from v7 client)
+    """Vision endpoint — GPT-4o via OpenClaw gateway."""
     if request.is_json:
         data = request.get_json()
         img_b64 = data.get("image", "")
@@ -177,7 +177,6 @@ def vision():
     else:
         return jsonify({"error": "No image"}), 400
 
-    # Route through OpenClaw gateway (supports multimodal)
     try:
         resp = requests.post(
             OPENCLAW_URL,
@@ -207,82 +206,69 @@ def vision():
     return jsonify({"response": assistant_text, "prompt": prompt})
 
 
-@app.route("/dashboard", methods=["GET"])
-def dashboard():
-    """Return dashboard data for idle screen."""
-    import subprocess
-    data = {}
+@app.route("/vision_tts", methods=["POST"])
+def vision_tts():
+    """Combined vision + TTS — one round trip for camera flow."""
+    if "image" not in request.files:
+        return jsonify({"error": "No image"}), 400
 
-    # BTC Price
-    try:
-        r = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true", timeout=5)
-        if r.status_code == 200:
-            btc = r.json()["bitcoin"]
-            data["btc"] = {"price": int(btc["usd"]), "change": round(btc.get("usd_24h_change", 0), 1)}
-    except:
-        pass
+    img_bytes = request.files["image"].read()
+    img_b64 = base64.b64encode(img_bytes).decode("utf-8")
+    prompt = request.form.get("prompt", "What do you see? Be concise and conversational.")
 
-    # Next calendar event
+    # Vision
     try:
-        result = subprocess.run(
-            ["gog", "calendar", "list", "--all", "--account", "michael.commack@gmail.com",
-             "--from", datetime.now().strftime("%Y-%m-%dT%H:%M:%S"), "--limit", "3", "--json"],
-            capture_output=True, text=True, timeout=10
+        resp = requests.post(
+            OPENCLAW_URL,
+            headers={"Authorization": f"Bearer {OPENCLAW_TOKEN}", "Content-Type": "application/json"},
+            json={
+                "model": "openai/gpt-4o",
+                "max_tokens": 120,
+                "messages": [
+                    {"role": "system", "content": VISION_SYSTEM},
+                    {"role": "user", "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}}
+                    ]}
+                ]
+            },
+            timeout=60,
         )
-        if result.returncode == 0:
-            import json
-            events = json.loads(result.stdout)
-            if events:
-                evt = events[0] if isinstance(events, list) else events.get("events", [{}])[0]
-                data["calendar"] = {"summary": evt.get("summary", ""), "start": evt.get("start", "")}
-    except:
-        pass
+        if resp.status_code == 200:
+            response_text = resp.json()["choices"][0]["message"]["content"]
+        else:
+            response_text = f"Vision error {resp.status_code}"
+    except Exception as e:
+        response_text = f"Vision error: {str(e)[:60]}"
 
-    # Weather
+    # TTS
+    tts_audio = None
     try:
-        r = requests.get("https://wttr.in/Baldwin+NY?format=%t|%C&m", timeout=5,
-                        headers={"User-Agent": "molt-device/1.0"})
-        if r.status_code == 200:
-            parts = r.text.strip().split("|")
-            data["weather"] = {"temp": parts[0].strip(), "condition": parts[1].strip() if len(parts) > 1 else ""}
-    except:
-        pass
-
-    return jsonify(data)
-
-
-@app.route("/tts", methods=["POST"])
-def tts():
-    """Generate TTS audio from text using OpenAI. Returns streaming PCM."""
-    text = request.json.get("text", "")
-    if not text:
-        return jsonify({"error": "No text"}), 400
-    try:
-        response = whisper_client.audio.speech.create(
+        tts_resp = whisper_client.audio.speech.create(
             model="tts-1",
-            voice="echo",
-            input=text[:500],
+            voice="fable",
+            input=response_text[:4096],
             response_format="wav",
             speed=1.1,
         )
-        audio_data = response.content
-        return audio_data, 200, {"Content-Type": "audio/wav"}
+        tts_audio = base64.b64encode(tts_resp.content).decode("utf-8")
     except Exception as e:
-        return jsonify({"error": str(e)[:60]}), 500
+        print(f"TTS error: {e}")
+
+    return jsonify({"response": response_text, "audio": tts_audio})
 
 
 @app.route("/voice_all", methods=["POST"])
 def voice_all():
-    """All-in-one: audio+photo in, WAV audio out. One roundtrip from Pi.
-    
+    """All-in-one: audio → STT → AI → TTS. One round trip from Pi.
+
     Accepts multipart: 'audio' (WAV) + optional 'image' (JPEG).
     Returns JSON with transcription, response text, and base64 WAV audio.
-    All API calls happen server-side on fast connection.
     """
     if "audio" not in request.files:
         return jsonify({"error": "No audio file"}), 400
 
-    # 1. Whisper STT (server-side, fast)
+    # 1. Whisper STT
     audio = request.files["audio"]
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
         audio.save(tmp.name)
@@ -299,7 +285,7 @@ def voice_all():
     # 2. Decide if photo is needed based on what the user said
     VISION_TRIGGERS = [
         'see', 'look', 'photo', 'picture', 'image', 'camera',
-        'what is this', 'what\'s this', 'what am i', 'who is',
+        'what is this', "what's this", 'what am i', 'who is',
         'who am i', 'read', 'identify', 'recognize', 'describe',
         'in front of', 'looking at', 'show', 'scan', 'inspect',
         'check this', 'what color', 'how many', 'what type',
@@ -315,7 +301,6 @@ def voice_all():
 
     try:
         if needs_vision and img_b64:
-            # Vision query — include the photo
             resp = requests.post(
                 OPENCLAW_URL,
                 headers={"Authorization": f"Bearer {OPENCLAW_TOKEN}", "Content-Type": "application/json"},
@@ -333,7 +318,6 @@ def voice_all():
                 timeout=60,
             )
         else:
-            # Text-only query — use conversation history
             history_append("user", transcription)
             resp = requests.post(
                 OPENCLAW_URL,
@@ -345,9 +329,9 @@ def voice_all():
                 },
                 timeout=60,
             )
+
         if resp.status_code == 200:
             assistant_text = resp.json()["choices"][0]["message"]["content"]
-            # Save assistant response to history (text-only path)
             if not (needs_vision and img_b64):
                 history_append("assistant", assistant_text)
         else:
@@ -357,7 +341,7 @@ def voice_all():
     except Exception as e:
         assistant_text = f"Error: {str(e)[:50]}"
 
-    # 3. TTS (server-side, fast)
+    # 3. TTS
     tts_audio = None
     try:
         tts_resp = whisper_client.audio.speech.create(
@@ -378,19 +362,88 @@ def voice_all():
     })
 
 
+@app.route("/tts", methods=["POST"])
+def tts():
+    """Generate TTS audio from text. Returns raw WAV."""
+    text = request.json.get("text", "")
+    if not text:
+        return jsonify({"error": "No text"}), 400
+    try:
+        response = whisper_client.audio.speech.create(
+            model="tts-1",
+            voice="echo",
+            input=text[:500],
+            response_format="wav",
+            speed=1.1,
+        )
+        return response.content, 200, {"Content-Type": "audio/wav"}
+    except Exception as e:
+        return jsonify({"error": str(e)[:60]}), 500
+
+
+@app.route("/dashboard", methods=["GET"])
+def dashboard():
+    """Return dashboard data: BTC price, next calendar event, weather."""
+    import subprocess
+    import json
+    data = {}
+
+    # BTC Price
+    try:
+        r = requests.get(
+            "https://api.coingecko.com/api/v3/simple/price"
+            "?ids=bitcoin&vs_currencies=usd&include_24hr_change=true",
+            timeout=5
+        )
+        if r.status_code == 200:
+            btc = r.json()["bitcoin"]
+            data["btc"] = {
+                "price": int(btc["usd"]),
+                "change": round(btc.get("usd_24h_change", 0), 1),
+            }
+    except Exception:
+        pass
+
+    # Next calendar event
+    try:
+        result = subprocess.run(
+            ["gog", "calendar", "list", "--all", "--account", "michael.commack@gmail.com",
+             "--from", datetime.now().strftime("%Y-%m-%dT%H:%M:%S"), "--limit", "3", "--json"],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            events = json.loads(result.stdout)
+            if events:
+                evt = events[0] if isinstance(events, list) else events.get("events", [{}])[0]
+                data["calendar"] = {
+                    "summary": evt.get("summary", ""),
+                    "start": evt.get("start", ""),
+                }
+    except Exception:
+        pass
+
+    # Weather
+    try:
+        r = requests.get(
+            "https://wttr.in/Baldwin+NY?format=%t|%C&m",
+            timeout=5,
+            headers={"User-Agent": "siteeye/1.0"},
+        )
+        if r.status_code == 200:
+            parts = r.text.strip().split("|")
+            data["weather"] = {
+                "temp": parts[0].strip(),
+                "condition": parts[1].strip() if len(parts) > 1 else "",
+            }
+    except Exception:
+        pass
+
+    return jsonify(data)
+
+
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok", "device": "molt-proxy", "backend": "openclaw", "vision": True})
-
-
-@app.route("/download/<filename>", methods=["GET"])
-def download_file(filename):
-    safe_names = {"main.py": "pi_client_v6.py"}
-    if filename in safe_names:
-        filepath = os.path.join(os.path.dirname(__file__), safe_names[filename])
-        if os.path.exists(filepath):
-            return send_file(filepath, as_attachment=True, download_name=filename)
-    return jsonify({"error": "not found"}), 404
+    return jsonify({"status": "ok", "service": "siteeye-proxy", "backend": "openclaw", "vision": True})
 
 
 if __name__ == "__main__":

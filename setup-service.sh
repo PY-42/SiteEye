@@ -1,28 +1,42 @@
 #!/bin/bash
-# SiteEye auto-start setup — run on the Pi as pi-molt
+# SiteEye service setup — run on the Pi as pi-molt
 # Usage: bash setup-service.sh
+#
+# Requires /home/pi-molt/.env with:
+#   SITEEYE_PROXY=https://your-proxy.example.com
+#   TELEGRAM_BOT_TOKEN=...   (optional)
+#   TELEGRAM_CHAT_ID=...     (optional)
+#
+# Also export OPENAI_API_KEY in ~/.bashrc if not already in .env
 
 set -e
 
 echo "=== SiteEye Service Setup ==="
 
-# Extract API key from .bashrc into .env for systemd
-grep "OPENAI_API_KEY" ~/.bashrc | sed 's/export //' > ~/.env
-echo "✓ Created ~/.env from .bashrc"
+# Ensure .env exists
+if [ ! -f ~/.env ]; then
+    echo "Creating ~/.env from .env.example — fill in your values!"
+    cp "$(dirname "$0")/.env.example" ~/.env
+    echo "⚠️  Edit ~/.env before starting the service."
+    exit 1
+fi
+echo "✓ ~/.env found"
 
 # Create systemd service
-sudo tee /etc/systemd/system/siteeye.service > /dev/null << 'EOF'
+REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+sudo tee /etc/systemd/system/siteeye.service > /dev/null << EOF
 [Unit]
-Description=SiteEye AI Wearable
-After=network-online.target amp-keepalive.service
+Description=SiteEye — Wearable AI Field Assistant
+After=network-online.target sound.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 User=pi-molt
-WorkingDirectory=/home/pi-molt
+WorkingDirectory=${REPO_DIR}
 EnvironmentFile=/home/pi-molt/.env
-ExecStart=/usr/bin/python3 /home/pi-molt/main.py
+ExecStart=${REPO_DIR}/venv/bin/python3 ${REPO_DIR}/main.py
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
@@ -39,7 +53,6 @@ sudo systemctl enable siteeye.service
 sudo systemctl start siteeye.service
 echo "✓ Service enabled and started"
 
-# Show status
 echo ""
 echo "=== Status ==="
 sudo systemctl status siteeye.service --no-pager

@@ -70,6 +70,7 @@ STATE_THINKING = "thinking"
 STATE_SPEAKING = "speaking"
 STATE_CAMERA = "camera"
 STATE_ERROR = "error"
+STATE_DASHBOARD = "dashboard"
 
 # Frame timing
 FRAME_INTERVAL = 1.0 / 6
@@ -174,13 +175,14 @@ class LcdUI:
 
         # RGB LED (muted, professional)
         led_map = {
-            STATE_IDLE: (40, 30, 0),       # Warm gold dim
+            STATE_IDLE: (40, 30, 0),        # Warm gold dim
             STATE_LISTENING: (60, 50, 0),   # Gold
             STATE_THINKING: (80, 60, 0),    # Bright gold
             STATE_SPEAKING: (50, 40, 0),    # Gold
             STATE_CAMERA: (60, 60, 60),     # White
             STATE_ERROR: (80, 15, 15),      # Red
             STATE_BOOT: (30, 25, 0),        # Dim gold
+            STATE_DASHBOARD: (35, 25, 0),   # Dim gold
         }
         r, g, b = led_map.get(state, (30, 25, 0))
         try:
@@ -702,7 +704,7 @@ class LcdUI:
         hints = [
             "Tap = Voice",
             "Hold = Camera",
-            "2x Tap = Live Mode",
+            "2x Tap = Dashboard",
         ]
         idx = int(time.time() / 3) % len(hints)
         hint = hints[idx]
@@ -806,6 +808,155 @@ class LcdUI:
             for i, ln in enumerate(visible):
                 draw.text((SAFE_LEFT + 4, y_start + i * line_h), ln,
                           fill=TEXT_PRIMARY, font=font)
+
+        self._send_to_display(img)
+
+    # ------------------------------------------------------------------
+    # Dashboard rendering
+    # ------------------------------------------------------------------
+
+    def render_dashboard(self, panel_data, panel_index, total_panels):
+        """Render a dashboard panel and push to display.
+
+        panel_data dict keys vary by panel type:
+          btc:      price (int), change (float)
+          calendar: summary (str), start (str)
+          weather:  temp (str), condition (str)
+          device:   cpu_temp, uptime, ip, disk (str)
+        """
+        img = Image.new('RGB', (WIDTH, HEIGHT), BG)
+        draw = ImageDraw.Draw(img)
+
+        # --- Header bar (matches status bar style) ---
+        dot_x = SAFE_LEFT + 8
+        dot_y = SAFE_TOP + 8
+        draw.ellipse([dot_x - 4, dot_y - 4, dot_x + 4, dot_y + 4], fill=ACCENT)
+        draw.text((dot_x + 10, SAFE_TOP + 1), "SiteEye", fill=ACCENT, font=self._font_sm)
+        sep_y = SAFE_TOP + 21
+        draw.line([(SAFE_LEFT, sep_y), (SAFE_RIGHT, sep_y)], fill=SEPARATOR_COLOR, width=1)
+
+        # --- Panel label (top-right) ---
+        panel_labels = ["BTC", "Calendar", "Weather", "Device"]
+        label = panel_labels[panel_index] if panel_index < len(panel_labels) else ""
+        lbbox = draw.textbbox((0, 0), label, font=self._font_sm)
+        lw = lbbox[2] - lbbox[0]
+        draw.text((SAFE_RIGHT - lw, SAFE_TOP + 1), label, fill=TEXT_DIM, font=self._font_sm)
+
+        # --- Content area ---
+        content_top = sep_y + 12
+        content_bot = SAFE_BOT - 24  # leave room for dots
+        ptype = panel_data.get("type", "")
+
+        if ptype == "btc":
+            price = panel_data.get("price", 0)
+            change = panel_data.get("change", 0.0)
+
+            # Dim label above
+            draw.text((SAFE_LEFT + 4, content_top + 2), "BITCOIN", fill=TEXT_DIM, font=self._font_sm)
+
+            # Large price in gold
+            price_str = f"${price:,}" if price else "Loading..."
+            pbbox = draw.textbbox((0, 0), price_str, font=self._font_lg)
+            pw = pbbox[2] - pbbox[0]
+            draw.text(((WIDTH - pw) // 2, content_top + 22), price_str, fill=ACCENT, font=self._font_lg)
+
+            # 24h change in green/red
+            change_str = f"{'+' if change >= 0 else ''}{change:.1f}% 24h"
+            change_color = STATUS_GREEN if change >= 0 else STATUS_RED
+            cbbox = draw.textbbox((0, 0), change_str, font=self._font_md)
+            cw = cbbox[2] - cbbox[0]
+            draw.text(((WIDTH - cw) // 2, content_top + 62), change_str, fill=change_color, font=self._font_md)
+
+        elif ptype == "calendar":
+            summary = panel_data.get("summary", "No events")
+            start = panel_data.get("start", "")
+
+            # Format start time
+            time_str = ""
+            if start:
+                try:
+                    from datetime import datetime as _dt
+                    if "T" in start:
+                        d = _dt.fromisoformat(start.replace("Z", "+00:00"))
+                        time_str = d.strftime("%a %b %-d \u2022 %-I:%M %p")
+                    else:
+                        d = _dt.fromisoformat(start)
+                        time_str = d.strftime("%a %b %-d")
+                except Exception:
+                    time_str = start[:16]
+
+            # Event title (word-wrapped)
+            max_w = SAFE_RIGHT - SAFE_LEFT - 8
+            words = summary.split()
+            lines = []
+            line = ""
+            for w in words:
+                test = f"{line} {w}".strip()
+                tbbox = draw.textbbox((0, 0), test, font=self._font_md)
+                if tbbox[2] - tbbox[0] > max_w:
+                    if line:
+                        lines.append(line)
+                    line = w
+                else:
+                    line = test
+            if line:
+                lines.append(line)
+
+            y = content_top + 15
+            for ln in lines[:3]:
+                draw.text((SAFE_LEFT + 4, y), ln, fill=TEXT_PRIMARY, font=self._font_md)
+                y += 26
+
+            if time_str:
+                draw.text((SAFE_LEFT + 4, y + 4), time_str, fill=ACCENT, font=self._font_sm)
+
+        elif ptype == "weather":
+            temp = panel_data.get("temp", "--")
+            condition = panel_data.get("condition", "")
+
+            # Large temperature
+            tbbox = draw.textbbox((0, 0), temp, font=self._font_lg)
+            tw = tbbox[2] - tbbox[0]
+            draw.text(((WIDTH - tw) // 2, content_top + 22), temp, fill=TEXT_PRIMARY, font=self._font_lg)
+
+            # Condition below
+            if condition:
+                cbbox = draw.textbbox((0, 0), condition, font=self._font_md)
+                cw = cbbox[2] - cbbox[0]
+                draw.text(((WIDTH - cw) // 2, content_top + 65), condition,
+                          fill=TEXT_DIM, font=self._font_md)
+
+        elif ptype == "device":
+            rows = [
+                ("CPU Temp", panel_data.get("cpu_temp", "N/A")),
+                ("Uptime",   panel_data.get("uptime", "N/A")),
+                ("IP",       panel_data.get("ip", "N/A")),
+                ("Disk",     panel_data.get("disk", "N/A")),
+            ]
+            y = content_top + 8
+            for label_str, value_str in rows:
+                draw.text((SAFE_LEFT + 4, y), label_str + ":", fill=TEXT_DIM, font=self._font_sm)
+                vbbox = draw.textbbox((0, 0), value_str, font=self._font_sm)
+                vw = vbbox[2] - vbbox[0]
+                draw.text((SAFE_RIGHT - vw, y), value_str, fill=TEXT_PRIMARY, font=self._font_sm)
+                y += 28
+
+        # --- Page indicator dots at bottom ---
+        dot_area_y = content_bot + 8
+        dot_r_active = 4
+        dot_r_inactive = 3
+        dot_spacing = 14
+        dots_total_w = total_panels * dot_spacing
+        dot_start_x = (WIDTH - dots_total_w) // 2
+
+        for i in range(total_panels):
+            dx = dot_start_x + i * dot_spacing
+            if i == panel_index:
+                draw.ellipse([dx - dot_r_active, dot_area_y - dot_r_active,
+                              dx + dot_r_active, dot_area_y + dot_r_active], fill=ACCENT)
+            else:
+                draw.ellipse([dx - dot_r_inactive, dot_area_y - dot_r_inactive,
+                              dx + dot_r_inactive, dot_area_y + dot_r_inactive], fill=ACCENT_DIM)
 
         self._send_to_display(img)
 

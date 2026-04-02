@@ -1,5 +1,5 @@
 [Unit]
-Description=SiteEye v2 — Wearable AI Assistant
+Description=SiteEye — Wearable AI Field Assistant
 After=network-online.target sound.target
 Wants=network-online.target
 
@@ -7,12 +7,12 @@ Wants=network-online.target
 Type=simple
 User=pi-molt
 WorkingDirectory=/home/pi-molt/molt-device
-ExecStart=/home/pi-molt/molt-device/venv/bin/python3 main_v2.py
+EnvironmentFile=/home/pi-molt/.env
+ExecStart=/home/pi-molt/molt-device/venv/bin/python3 main.py
 Restart=on-failure
 RestartSec=5
-Environment=SITEEYE_PROXY=https://molted.tail4a98c5.ts.net
-Environment=TELEGRAM_BOT_TOKEN=8358560979:AAHEPmk-qQg9RsmrIR2cXyNP4i4u_Hqtl2U
-Environment=TELEGRAM_CHAT_ID=8217278203
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
