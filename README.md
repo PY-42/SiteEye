@@ -21,12 +21,19 @@ Designed for construction jobsites — hands-free AI that clips to your vest.
 
 ## Hardware
 
-| Part | Model | Notes |
-|------|-------|-------|
-| Computer | Raspberry Pi Zero 2W | 64-bit, WiFi |
-| HAT | Whisplay HAT | WM8960 codec, 1.69" IPS LCD (240×280 ST7789), RGB LED, button |
-| Camera | Pi Camera Module 3 (or IMX500) | CSI ribbon. Standard camera works fine. |
-| Case | 3D printed | See `case-design/` |
+| Part | Component | Link | ~Price |
+|------|-----------|------|--------|
+| Computer | Raspberry Pi Zero 2W | [Amazon](https://www.amazon.com/dp/B0FWRPF4FV) | $24 |
+| HAT | Whisplay HAT for Pi Zero | [Amazon](https://www.amazon.com/dp/B0FPG8S6K6) | $30 |
+| Camera | Raspberry Pi AI Camera (IMX500) | [Amazon](https://www.amazon.com/dp/B0DJ8VFWKM) | $70 |
+| Battery | PiSugar S Plus (1200mAh) | [Amazon](https://www.amazon.com/dp/B0FB3N1YSK) | $40 |
+| Case | 3D printed | See `case-design/` | — |
+
+**Total BOM: ~$164**
+
+> **Note:** A standard [Pi Camera Module 3](https://www.amazon.com/dp/B0BRY6MVXL) (~$54) works as a drop-in replacement if you don't need on-device AI inference. All vision processing is cloud-based.
+
+The Whisplay HAT provides the LCD display (1.69" IPS, 240×280, ST7789), WM8960 audio codec (dual MEMS mics + speaker amp), RGB LED, and a programmable button — all in one board.
 
 ## Architecture
 
