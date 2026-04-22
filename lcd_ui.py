@@ -90,6 +90,10 @@ class LcdUI:
         self._photo_img = None
         self._photo_text = ""
 
+        # Battery state (updated by main.py)
+        self.battery_pct = -1  # -1 = unknown
+        self.battery_charging = False
+
         # Animation state
         self._blink_amount = 0.0
         self._next_blink = time.time() + random.uniform(2.5, 5)
@@ -499,14 +503,45 @@ class LcdUI:
         mark = "SiteEye"
         draw.text((dot_x + dot_r + 6, y), mark, fill=ACCENT, font=self._font_sm)
 
-        # Status text (right-aligned)
+        # Battery indicator (far right)
+        right_edge = SAFE_RIGHT
+        if self.battery_pct >= 0:
+            self._draw_battery_icon(draw, right_edge - 38, y + 2, self.battery_pct, self.battery_charging)
+            right_edge -= 42
+
+        # Status text (right-aligned, left of battery)
         if status:
             tw = draw.textlength(status, font=self._font_sm)
-            draw.text((SAFE_RIGHT - tw, y), status, fill=TEXT_DIM, font=self._font_sm)
+            draw.text((right_edge - tw, y), status, fill=TEXT_DIM, font=self._font_sm)
 
         # Separator line
         sep_y = y + 20
         draw.line([(SAFE_LEFT, sep_y), (SAFE_RIGHT, sep_y)], fill=SEPARATOR_COLOR, width=1)
+
+    def _draw_battery_icon(self, draw, x, y, pct, charging):
+        """Draw a small battery icon with fill level and percentage text."""
+        # Battery body: 20x10 rounded rect
+        bw, bh = 20, 10
+        draw.rounded_rectangle([x, y, x + bw, y + bh], radius=2, outline=TEXT_DIM, width=1)
+        # Battery tip (positive terminal)
+        draw.rectangle([x + bw, y + 3, x + bw + 2, y + 7], fill=TEXT_DIM)
+
+        # Fill level
+        fill_w = max(0, int((bw - 4) * pct / 100))
+        if fill_w > 0:
+            if pct <= 15:
+                fill_color = STATUS_RED
+            elif pct <= 30:
+                fill_color = STATUS_YELLOW
+            else:
+                fill_color = STATUS_GREEN
+            if charging:
+                fill_color = ACCENT
+            draw.rectangle([x + 2, y + 2, x + 2 + fill_w, y + bh - 2], fill=fill_color)
+
+        # Percentage text
+        pct_str = f"{pct:.0f}%"
+        draw.text((x + bw + 5, y - 2), pct_str, fill=TEXT_DIM, font=self._font_sm)
 
     # ------------------------------------------------------------------
     # Drawing: Eyes
@@ -934,6 +969,7 @@ class LcdUI:
 
         elif ptype == "device":
             rows = [
+                ("Battery",  panel_data.get("battery", "N/A")),
                 ("CPU Temp", panel_data.get("cpu_temp", "N/A")),
                 ("Uptime",   panel_data.get("uptime", "N/A")),
                 ("IP",       panel_data.get("ip", "N/A")),

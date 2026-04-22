@@ -89,7 +89,22 @@ After reboot, SSH back in (`ssh <username>@<hostname>.local`) and verify:
 aplay -l | grep wm8960
 ```
 
-#### 1b. Enable Camera and SPI
+#### 1b. Install PiSugar Battery Manager
+
+This enables battery level monitoring on the status bar and device dashboard.
+
+```bash
+curl https://cdn.pisugar.com/release/pisugar-power-manager.sh | sudo bash
+```
+
+Verify it's running:
+
+```bash
+# Should return something like "battery: 75.00"
+echo "get battery" | nc -q 0 127.0.0.1 8423
+```
+
+#### 1c. Enable Camera and SPI
 
 ```bash
 sudo raspi-config
@@ -104,7 +119,7 @@ Enable:
 sudo reboot
 ```
 
-#### 1c. Install SiteEye
+#### 1d. Install SiteEye
 
 SSH back in after reboot:
 
