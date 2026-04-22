@@ -134,6 +134,71 @@ chmod +x setup-service.sh
 
 ### 2. Proxy Server
 
+The proxy server handles all AI processing (STT, chat, TTS, vision). You can run it on a VPS or on your laptop — the Pi just needs to reach it over the network.
+
+#### Option A: Run on your laptop (easiest to get started)
+
+Your laptop and the Pi must be on the same network (e.g., both on your phone's hotspot).
+
+**1. Find your laptop's IP address:**
+
+**Mac:**
+```bash
+ipconfig getifaddr en0
+```
+
+**Windows:**
+```
+ipconfig | findstr "IPv4"
+```
+
+Write down the IP (e.g., `172.20.10.2`).
+
+**2. Install dependencies and run the server:**
+
+```bash
+cd ~/siteeye  # or wherever you cloned the repo
+
+# Install dependencies
+pip install flask openai requests
+
+# Copy the example config and fill in your OpenAI API key
+cp .env.server.example .env
+nano .env
+
+# Load the config and start the server
+set -a && source .env && set +a
+python server.py
+```
+
+> **Tip:** If you get `ModuleNotFoundError`, try `python server.py` instead of `python3 server.py` (or vice versa). Use whichever Python has your packages installed — check with `python -c "import flask"` or `python3 -c "import flask"`.
+
+The server runs on port 5757. Leave this terminal open — the server must stay running.
+
+**3. Point the Pi to your laptop:**
+
+SSH into the Pi (`ssh <username>@<hostname>.local`) and edit the `.env` file:
+
+```bash
+nano ~/.env
+```
+
+Set `SITEEYE_PROXY` to your laptop's IP:
+
+```
+SITEEYE_PROXY=http://172.20.10.2:5757
+```
+
+Then restart the service:
+
+```bash
+sudo systemctl restart siteeye
+```
+
+> **Note:** Your laptop's IP may change each time you reconnect to the hotspot. If SiteEye stops working, check your IP and update the Pi's `.env` if it changed.
+
+#### Option B: Run on a VPS (always-on, no laptop needed)
+
 ```bash
 # On your VPS
 cd server/
@@ -141,28 +206,29 @@ pip install flask openai requests
 
 # Configure
 cp .env.server.example .env
-nano .env  # Fill in OPENAI_API_KEY, OPENCLAW_URL, OPENCLAW_TOKEN, GOOGLE_API_KEY
+nano .env  # Fill in OPENAI_API_KEY, OPENCLAW_URL, OPENCLAW_TOKEN
 
 # Run
 python3 server.py
 ```
+
+Set `SITEEYE_PROXY` on the Pi to your VPS URL (e.g., `https://your-server.com:5757`).
 
 ### Environment Variables
 
 **Pi Client** (`.env`):
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `SITEEYE_PROXY` | Yes | URL of your proxy server |
+| `SITEEYE_PROXY` | Yes | URL of your proxy server (laptop IP or VPS URL) |
 | `TELEGRAM_BOT_TOKEN` | No | Telegram bot token for mirroring |
 | `TELEGRAM_CHAT_ID` | No | Telegram chat ID to mirror to |
 
-**Proxy Server** (`.env`):
+**Proxy Server** (`.env` or environment):
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `OPENAI_API_KEY` | Yes | OpenAI API key (Whisper + TTS + Vision) |
+| `OPENAI_API_KEY` | Yes | OpenAI API key (Whisper STT + TTS + GPT-4o vision) |
 | `OPENCLAW_URL` | No | OpenClaw gateway URL for AI chat |
 | `OPENCLAW_TOKEN` | No | OpenClaw auth token |
-| `GOOGLE_API_KEY` | No | Google API key (for dashboard data) |
 
 ## LCD States
 

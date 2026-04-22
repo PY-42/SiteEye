@@ -499,6 +499,11 @@ class LcdUI:
         mark = "SiteEye"
         draw.text((dot_x + dot_r + 6, y), mark, fill=ACCENT, font=self._font_sm)
 
+        # Status text (right-aligned)
+        if status:
+            tw = draw.textlength(status, font=self._font_sm)
+            draw.text((SAFE_RIGHT - tw, y), status, fill=TEXT_DIM, font=self._font_sm)
+
         # Separator line
         sep_y = y + 20
         draw.line([(SAFE_LEFT, sep_y), (SAFE_RIGHT, sep_y)], fill=SEPARATOR_COLOR, width=1)
