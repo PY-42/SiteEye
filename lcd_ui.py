@@ -11,7 +11,8 @@ import math
 import random
 import threading
 
-sys.path.insert(0, '/home/pi-molt/Whisplay/Driver')
+import os
+sys.path.insert(0, os.path.expanduser('~/Whisplay/Driver'))
 
 from PIL import Image, ImageDraw, ImageFont
 from WhisPlay import WhisPlayBoard
@@ -497,6 +498,11 @@ class LcdUI:
         # "SiteEye" wordmark (right side of dot)
         mark = "SiteEye"
         draw.text((dot_x + dot_r + 6, y), mark, fill=ACCENT, font=self._font_sm)
+
+        # Status text (right-aligned)
+        if status:
+            tw = draw.textlength(status, font=self._font_sm)
+            draw.text((SAFE_RIGHT - tw, y), status, fill=TEXT_DIM, font=self._font_sm)
 
         # Separator line
         sep_y = y + 20

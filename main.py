@@ -21,7 +21,7 @@ import tempfile
 import requests
 from datetime import datetime
 
-sys.path.insert(0, '/home/pi-molt/Whisplay/Driver')
+sys.path.insert(0, os.path.expanduser('~/Whisplay/Driver'))
 
 from lcd_ui import (
     LcdUI,
@@ -659,16 +659,16 @@ class SiteEye:
         try:
             r = requests.get(f"{PROXY_URL}/health", timeout=5)
             if r.status_code == 200:
-                log("✅ Proxy connected")
-                self.ui.set_status("Connected")
+                health = r.json()
+                backend = health.get("backend", "unknown")
+                log(f"✅ Proxy connected (backend: {backend})")
+                self.ui.set_status(backend.upper())
             else:
                 log("⚠️ Proxy unhealthy")
-                self.ui.set_status("Proxy error")
+                self.ui.set_status("ERROR")
         except Exception:
             log("⚠️ Proxy unreachable")
-            self.ui.set_status("Offline")
-
-        self.ui.set_status("")
+            self.ui.set_status("OFFLINE")
         self.ui.set_state(STATE_IDLE)
 
         # Startup audio
