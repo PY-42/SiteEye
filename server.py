@@ -1,5 +1,7 @@
 """SiteEye Proxy — Whisper STT + Vision + OpenClaw Gateway for Pi Zero 2W"""
 import os
+from dotenv import load_dotenv
+load_dotenv()
 import base64
 import tempfile
 import time

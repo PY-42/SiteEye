@@ -128,7 +128,7 @@ SSH back in after reboot:
 sudo apt install -y python3-numpy python3-pil
 
 # Clone SiteEye
-git clone https://github.com/mjamiv/SiteEye.git ~/siteeye
+git clone git@github.com:K-Applied-AI/SiteEye.git ~/siteeye
 cd ~/siteeye
 
 # Create virtual environment and install Python packages
@@ -169,24 +169,26 @@ ipconfig | findstr "IPv4"
 
 Write down the IP (e.g., `172.20.10.2`).
 
-**2. Install dependencies and run the server:**
+**2. Clone the repo, install dependencies, and run the server:**
+
+Run these on your laptop:
 
 ```bash
-cd ~/siteeye  # or wherever you cloned the repo
+git clone git@github.com:K-Applied-AI/SiteEye.git ~/SiteEye
+cd ~/SiteEye
 
 # Install dependencies
-pip install flask openai requests
+pip install flask openai requests python-dotenv
 
 # Copy the example config and fill in your OpenAI API key
 cp .env.server.example .env
 nano .env
 
-# Load the config and start the server
-set -a && source .env && set +a
+# Start the server (it loads .env automatically)
 python server.py
 ```
 
-> **Tip:** If you get `ModuleNotFoundError`, try `python server.py` instead of `python3 server.py` (or vice versa). Use whichever Python has your packages installed — check with `python -c "import flask"` or `python3 -c "import flask"`.
+> **Tip:** If you get `ModuleNotFoundError`, make sure you're using the same Python environment where you installed the packages. Check with `python -c "import flask"`.
 
 The server runs on port 5757. Leave this terminal open — the server must stay running.
 
